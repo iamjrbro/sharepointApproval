@@ -1,0 +1,283 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "Forms": {
+                "splitOn": "@triggerBody()?['value']",
+                "type": "ApiConnectionWebhook",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['microsoftforms']['connectionId']"
+                        }
+                    },
+                    "body": {
+                        "eventType": "responseAdded",
+                        "notificationUrl": "@listCallbackUrl()",
+                        "source": "ms-connector"
+                    },
+                    "path": "/formapi/api/forms/@{encodeURIComponent('QhQEvrbz4UuFCeypyBdSj5VQGisTrIVOqY1vv2PagQBUMlBWUEtDQ1hRMTVDT1dQMU4xQlE5RjJCQy4u')}/webhooks"
+                },
+                "description": "When a new response is submitted"
+            }
+        },
+        "actions": {
+            "Get_response_details": {
+                "runAfter": {},
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['microsoftforms']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/formapi/api/forms('@{encodeURIComponent('QhQEvrbz4UuFCeypyBdSj5VQGisTrIVOqY1vv2PagQBUMlBWUEtDQ1hRMTVDT1dQMU4xQlE5RjJCQy4u')}')/responses",
+                    "queries": {
+                        "response_id": "@triggerBody()?['resourceData']?['responseId']"
+                    }
+                }
+            },
+            "Get_user_profile_to_check_it´s_email": {
+                "runAfter": {
+                    "Get_response_details": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['office365users']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/codeless/v1.0/users/@{encodeURIComponent(body('Get_response_details')?['responder'])}"
+                }
+            },
+            "verify_email": {
+                "actions": {
+                    "Get_user_profile_(V2)_1": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['office365users']['connectionId']"
+                                }
+                            },
+                            "method": "get",
+                            "path": "/codeless/v1.0/users/@{encodeURIComponent(body('Get_user_profile_to_check_it´s_email')?['mail'])}"
+                        }
+                    },
+                    "check_departament": {
+                        "actions": {
+                            "Send_an_HTTP_request_to_SharePoint": {
+                                "runAfter": {
+                                    "HTTP_1": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['sharepointonline']['connectionId']"
+                                        }
+                                    },
+                                    "method": "post",
+                                    "body": {
+                                        "method": "GET",
+                                        "uri": "concat('_api/web/siteusers/getbyemail(\\'', outputs('@{body('Get_response_details')?['r635cbfb38b2f4155b4cf8b797ecef57e']}')?['responder'], '\\')')"
+                                    },
+                                    "path": "/datasets/@{encodeURIComponent(encodeURIComponent('concat(''https://sebsa.sharepoint.com/'', outputs(''',body('Get_response_details')?['r635cbfb38b2f4155b4cf8b797ecef57e'],''')?[''body/rSPx''])'))}/httprequest"
+                                }
+                            },
+                            "approve_access": {
+                                "actions": {
+                                    "Enviar_um_e-mail_-_Acesso_concedido": {
+                                        "type": "ApiConnection",
+                                        "inputs": {
+                                            "host": {
+                                                "connection": {
+                                                    "name": "@parameters('$connections')['office365']['connectionId']"
+                                                }
+                                            },
+                                            "method": "post",
+                                            "body": {
+                                                "To": "@{body('Send_an_HTTP_request_to_SharePoint')}",
+                                                "Subject": "Acesso concedido",
+                                                "Body": "<p class=\"editor-paragraph\">Olá @{body('Get_response_details')?['rebc7442d7c1f4f63b6d74009879c4e5a']}!<br>Seu acesso ao site do departamento foi concedido.</p>",
+                                                "Importance": "Normal"
+                                            },
+                                            "path": "/v2/Mail"
+                                        }
+                                    }
+                                },
+                                "runAfter": {
+                                    "Send_an_HTTP_request_to_SharePoint": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "else": {
+                                    "actions": {}
+                                },
+                                "expression": {
+                                    "and": [
+                                        {
+                                            "equals": [
+                                                "@body('Send_an_HTTP_request_to_SharePoint')",
+                                                200
+                                            ]
+                                        }
+                                    ]
+                                },
+                                "type": "If"
+                            },
+                            "HTTP": {
+                                "type": "Http",
+                                "inputs": {
+                                    "uri": "https://login.microsoftonline.com/be041442-f3b6-4be1-8509-eca9c817528f/oauth2/v2.0/token",
+                                    "method": "POST",
+                                    "headers": {
+                                        "Content-Type": "application/x-www-form-urlencoded"
+                                    },
+                                    "body": "client_id=0117ab88-edf8-458e-a4ba-36baac0aa114\n&scope=https://sistemaseb.sharepoint.com/.default\n&client_secret=fzg8Q~jEX4SDqW45ih~qxk4w7m~hMJ6X1V-cbcyA\n&grant_type=client_credentials"
+                                },
+                                "runtimeConfiguration": {
+                                    "contentTransfer": {
+                                        "transferMode": "Chunked"
+                                    }
+                                }
+                            },
+                            "HTTP_1": {
+                                "runAfter": {
+                                    "HTTP": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "type": "Http",
+                                "inputs": {
+                                    "uri": "https://sistemaseb.sharepoint.com/sites/teste/_api/web/lists",
+                                    "method": "GET",
+                                    "headers": {
+                                        "Authorization": "Bearer @{body('HTTP')?['access_token']}\n"
+                                    }
+                                },
+                                "runtimeConfiguration": {
+                                    "contentTransfer": {
+                                        "transferMode": "Chunked"
+                                    }
+                                }
+                            }
+                        },
+                        "runAfter": {
+                            "Get_user_profile_(V2)_1": [
+                                "Succeeded"
+                            ]
+                        },
+                        "else": {
+                            "actions": {
+                                "Enviar_e-mail_-_Acesso_negado": {
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['office365']['connectionId']"
+                                            }
+                                        },
+                                        "method": "post",
+                                        "body": {
+                                            "To": "@body('Get_response_details')?['responder']",
+                                            "Subject": "Acesso - Sharepoint",
+                                            "Body": "<p class=\"editor-paragraph\">Acesso negado!<br>Departamento inválido</p>",
+                                            "Importance": "Normal"
+                                        },
+                                        "path": "/v2/Mail"
+                                    }
+                                }
+                            }
+                        },
+                        "expression": {
+                            "and": [
+                                {
+                                    "contains": [
+                                        "@body('Get_user_profile_(V2)_1')?['mail']",
+                                        "DIGITAL - TI - INFRAESTRUTURA E CLOUD"
+                                    ]
+                                }
+                            ]
+                        },
+                        "type": "If"
+                    }
+                },
+                "runAfter": {
+                    "Get_user_profile_to_check_it´s_email": [
+                        "Succeeded"
+                    ]
+                },
+                "else": {
+                    "actions": {
+                        "Enviar_um_e-mail_-_Condições_não_específicadas": {
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['office365']['connectionId']"
+                                    }
+                                },
+                                "method": "post",
+                                "path": "/v3/Mail/ReplyTo/@{encodeURIComponent(body('Get_response_details')?['responder'])}"
+                            }
+                        }
+                    }
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "endsWith": [
+                                "@body('Get_user_profile_to_check_it´s_email')?['mail']",
+                                "sebsa.com.br"
+                            ]
+                        }
+                    ]
+                },
+                "type": "If"
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "microsoftforms": {
+                    "id": "/subscriptions/160b1b80-4593-47a3-a2d9-72cd136fac8c/providers/Microsoft.Web/locations/centralus/managedApis/microsoftforms",
+                    "connectionId": "/subscriptions/160b1b80-4593-47a3-a2d9-72cd136fac8c/resourceGroups/rg-sharepointApproval/providers/Microsoft.Web/connections/microsoftforms",
+                    "connectionName": "microsoftforms"
+                },
+                "office365users": {
+                    "id": "/subscriptions/160b1b80-4593-47a3-a2d9-72cd136fac8c/providers/Microsoft.Web/locations/centralus/managedApis/office365users",
+                    "connectionId": "/subscriptions/160b1b80-4593-47a3-a2d9-72cd136fac8c/resourceGroups/rg-sharepointApproval/providers/Microsoft.Web/connections/office365users",
+                    "connectionName": "office365users"
+                },
+                "sharepointonline": {
+                    "id": "/subscriptions/160b1b80-4593-47a3-a2d9-72cd136fac8c/providers/Microsoft.Web/locations/centralus/managedApis/sharepointonline",
+                    "connectionId": "/subscriptions/160b1b80-4593-47a3-a2d9-72cd136fac8c/resourceGroups/rg-sharepointApproval/providers/Microsoft.Web/connections/sharepointonline",
+                    "connectionName": "sharepointonline"
+                },
+                "office365": {
+                    "id": "/subscriptions/160b1b80-4593-47a3-a2d9-72cd136fac8c/providers/Microsoft.Web/locations/centralus/managedApis/office365",
+                    "connectionId": "/subscriptions/160b1b80-4593-47a3-a2d9-72cd136fac8c/resourceGroups/rg-sharepointApproval/providers/Microsoft.Web/connections/office365",
+                    "connectionName": "office365"
+                }
+            }
+        }
+    }
+}
